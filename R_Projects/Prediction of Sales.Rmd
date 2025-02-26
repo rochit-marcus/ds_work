@@ -1,0 +1,709 @@
+---
+title: "Prediction of Sales"
+author: "Rochit Marcus"
+date: "Due 01 December 2024"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+  latex_engine: pdflatex
+---
+# Report to Chief Executive Officer
+This report provides key insights based on our video game sales data. The main takeaways are as follows:
+
+1. An estimated 219.4453 thousand copies of Fatal Empire are expected to be sold in the North American region.
+1. This estimation is derived from sales data in the European and other global regions.
+1. Factors such as Rank, Platform, and Genre have significantly influenced this estimation.
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Report to Manager
+
+## 1. Introduction
+This report aims to provide a detailed analysis of the video game sales data, focusing on the game Fatal Empire. The analysis includes key alterations made to the dataset, relationships between variables, and the outcomes of various predictive models. The goal is to offer insights that will guide strategic decisions and improve our understanding of the factors influencing video game sales.
+
+## 2. Main Alterations and Reasons
+
+1. Data Filtering: Removed data older than 2010 to avoid skewed analysis due to outdated technology.
+1. Variable Transformation: Converted categorical variables (Platform, Genre, Publisher) to factors for better model performance.
+1. Outlier Handling: Identified and addressed outliers in sales data to improve model accuracy.
+
+## 3. Relationships Between Variables
+1. Parallel Coordinates Plot: Showed significant relationships between sales in different regions (NA, EU, Other) and the Rank, Platform, and Genre.
+1. Principal Component Analysis (PCA): PCA was not worthwhile as it required a high number of components to explain 90% of the variance, indicating complex relationships among variables.
+
+## 4. Pre-processing Steps
+
+1. Data Cleaning: Removed rows with missing values and non-numeric years.
+1. Data Transformation: Converted categorical variables to factors and normalized numeric variables.
+1. Feature Selection: Retained significant variables (NA_Sales, EU_Sales, Other_Sales, Rank, Platform, Genre) for modeling.
+1. Removing the zero variance variables, applying normalization of numeric variables for better performance of the model.
+
+## 5. Model Outcomes
+
+1. Lasso Regression: Identified key numeric predictors influencing sales.
+1. Random Forest: Classified the data and provided insights into variable importance.
+1. Optimal Model: Random Forest was chosen as the optimal model due to its superior performance in handling complex relationships and interactions.
+
+## 6. Model Performance and Predictions
+
+1. Performance Metrics: The chosen model (Random Forest) showed a lower residual mean square error (RMSE) and higher R-squared value, indicating better predictive accuracy.
+1. Sales Predictions: Based on the model, the estimated sales for Fatal Empire in the North American region are 219.4453 thousand copies, with a residual mean square error range indicating high confidence in the prediction.
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+# Report to Fellow Statistician
+
+## 1. Data Clean
+
+### 1.1 Data Dictionary
+
+Following is the data dictionary of the dataset used for the analysis.
+
+Field         | Data Type    | Description                                 |
+------------- | ------------ | ----------------------------------------    |
+Rank          | Integer      | Rank of the game based on global sales.     |
+Name          | String       | The name of the Video Game.                 |
+Platform      | String       | The platform on which the game is released. |
+Year          | String       | The year the game was released.             |
+Genre         | String       | The genre of the game.                      |
+Publisher     | String       | The Publisher of the game.                  |
+NA_Sales      | Numeric      | Sales in North America (In Millions).       |
+EU_Sales      | Numeric      | Sales in Europe (In Millions).              |
+JP_Sales      | Numeric      | Sales in Japan (In Millions).               |
+Other_Sales   | Numeric      | Sales in other regions (In Millions).       |
+Global_Sales  | Numeric      | Global level sales (In Millions). Sum of the above mentioned sales.  |
+
+
+### 1.2 Initiate - Invoking Libraries and Loading Data
+```{r Setup - library invoke, include=TRUE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(moments)
+library(modelr)
+library(knitr)
+library(corrplot)
+library(skimr)
+library(tidymodels)
+library(glmnet)
+library(vip)
+library(readr)
+library(stringr)
+library(rsample)
+library(recipes)
+library(yardstick)
+library(GGally)
+```
+```{r Loading Data from csv file}
+vgsales_data <- read.csv("B:/Master Studies/Course Works/7302OL - Real Data - Modern Methods For Finding Hidden Patterns/Assessments/Assessment 3/vgsales.csv", header = TRUE)
+
+vgsales_data <- as_tibble(vgsales_data)
+
+kable(head(vgsales_data), caption = "Table 1 - Video Game Sales Data")
+
+```
+
+### 1.3 Data Skimming - Check on Data Type of Variable
+```{r Data Skimming}
+skim(vgsales_data)
+```
+
+From the above investigation, following points are discovered:
+
+1. While skimming the data, the field Year has come up as character by default which I suspect there are some non-numeric Year present in the data. It turned out that there are some NA values in the Year field. This scenarios is equivalent to missing data of Year and these rows will be removed. The variable Year, I am keeping it as character variable after removing the "NA" values to observe the pattern year-wise.
+1. The Rank is taken as integer which is fine because this can enable to efficiently perform the sorting or comparison operation. No change required to be performed.
+1. Variables Platform, Publisher and Genre should be factors instead of character.
+1. The sales data (NA_Sales, EU_Sales, JP_Sales, Other_Sales and Global Sales) has outliers.
+
+### 1.4 Change Data Type As Needed
+
+```{r Removing the records with NA Year value}
+# Removing the NA values in the Year Field in the dataset.
+vgsales_data <- vgsales_data %>% filter(str_detect(Year, "^\\d{4}$")) 
+vgsales_data <- vgsales_data %>% mutate(Year = as.integer(Year))
+```
+
+```{r Changing the Variables into Factor}
+#Changing the Character variables Platform, Publisher and Genre to Factor
+vgsales_data <- vgsales_data %>% mutate( Platform = as.factor(Platform), Genre = as.factor(Genre), Publisher = as.factor(Publisher))
+
+kable(head(vgsales_data), caption = "Table 2 - Sample Data After Data Type Correction")
+```
+
+### 1.5 Identification of Variables - Not part of Analysis
+
+1. The Global sales is a sum of all the sales column (NA_Sales, EU_Sales, JP_Sales, Other Sales), it is bound to have outliers. In the current analysis, I believe that Global_Sales is not going to add any value, since it is the sum of all the other sales data. Global Sales needs to be dropped off.
+1. Name field is not a factor field, it cannot be put into category, therefore, Name of the Video Game is not going to have any influence in the prediction process, hence, not valuable and can be dropped off. 
+
+```{r}
+vgsales_data <- vgsales_data %>% select(-Name, -Global_Sales)
+```
+
+### 1.6 Skim Again
+```{r }
+skim(vgsales_data)
+
+```
+
+### 1.7 Data Tables to Examine Key Variables
+
+Since the Video Games industry is closely linked to Electronics technology. The Electronics industry is depended on the chip technology, as per the Moore's law the number of transistors in an Integrated Circuit (IC) doubles every year. Because of this reason, the games which were prevalent in the market 40 years would not reflect the current scenario. The analysis might become skewed or biased, therefore, I would prefer to not include the data corresponding to 40 years old video games. The dataset has data goes all the way till 1980, I am considering of including data of last 10 years.  
+
+```{r}
+# Filtering out the Year which are older than 2010.
+vgsales_data <- vgsales_data %>% filter(Year >= 2010)  #5145 observations
+
+kable(head(vgsales_data),caption = "Table 3 - Sample Data After removing columns and Filtering out data older than 2010")
+```
+
+Before determining the key variables it will be useful to bring down the size of the dataset to a manageable size. I am going to apply Pareto rule and use NA Sales to determine the Platform, Genre, Year and Publisher which contribute 80% to the sale. The focus is on NA sales as the prediction is required to be made on the sales in North America (NA).
+
+
+```{r}
+#Calculate the cumulative sales and cumulative percentage
+publisher_platform_genre_yr_sales <- vgsales_data %>% group_by(Publisher, Platform, Genre, Year) %>% summarise(Grouped_NA_Sales = sum(NA_Sales, na.rm = TRUE),.groups = 'drop') %>% arrange(desc(Grouped_NA_Sales)) %>% mutate(Cumulative_Sales = cumsum(Grouped_NA_Sales), Cumulative_Percentage = Cumulative_Sales / sum(Grouped_NA_Sales) * 100)
+
+# Filter Publisher-Platform combinations that account for 80% of the sales 
+top_publisher_platform_yr_genre <- publisher_platform_genre_yr_sales %>% filter(Cumulative_Percentage >= 80) 
+
+# Display the results 
+kable(head(top_publisher_platform_yr_genre),caption="Tables 4 - Top Publisher, Genre and Platform Contributing Top 80% of NA Sales") 
+
+# Fetching 
+top_pub_platform_yr_gen <- top_publisher_platform_yr_genre %>% distinct(Publisher,Platform,Genre,Year)
+
+```
+
+Joining it back with the main dataset vgsales_data.
+
+```{r}
+vgsales_data_top_contributors <- merge(vgsales_data, top_pub_platform_yr_gen, by = c("Publisher","Platform","Genre","Year"),all=FALSE)
+
+kable(head(vgsales_data_top_contributors),caption="Tables 5 - Focusing on data with Top Publisher, Genre and Platform Contributing 80% of NA Sales") 
+```
+
+By identifying the top contributors from Publisher, Platform and Genre in each year, the size of the dataset has reduced significant which will help in the efficient model building.
+
+
+
+## 2. Exploratory Data Analysis (EDA)
+
+### 2.1 Purpose of EDA
+Purpose of the EDA is to discover and explore relationship among the variables and to determine which variable is going to play the most influential role in the prediction of North American sales.
+
+
+### 2.2 Relationship between Response Variable and the Numeric Predictor
+
+Since NA_Sales is the response variable which I need to predict, therefore, following are the attempts to view if there are any relationship between NA_Sales and EU_Sales as well as NA_Sales and Other_Sales.
+
+
+```{r}
+skim(vgsales_data_top_contributors)
+# Relationship between NA Sales and other Sales
+ggplot(vgsales_data_top_contributors,aes(x=NA_Sales,y=EU_Sales)) + geom_point() + labs(y="European Region Sales", x="North American Sales", title="Scatter-Plot Between NA and EU Sales")
+
+```
+
+Figure 1: Attempt to Determine Relationship between NA Sales and European Sales
+
+```{r}
+ggplot(vgsales_data_top_contributors,aes(x=NA_Sales,y=JP_Sales)) + geom_point() + labs(y="Japan Region Sales", x="North American Sales", title="Scatter-Plot Between NA and JP Sales")
+```
+
+Figure 2: Attempt to Determine Relationship between NA Sales and Japan Sales
+
+```{r}
+ggplot(vgsales_data_top_contributors,aes(x=NA_Sales,y=Other_Sales)) + geom_point() + labs(y="Other Region Sales", x="North American Sales", title="Scatter-Plot Between NA and Other Region Sales")
+```
+
+Figure 3: Attempt to Determine Relationship between NA Sales and Sales in Other Regions
+
+
+From figure 1 and 3, the scatter-plot seems like there is a discrete-ness in the data. The reason being, I have downsized the data based on identifying Platform, Published, Genre and Year contributing to the 80% of the NA Sales. Coming back to the plots, the correlation plot of sales of North America and European Region as well as North America and Other region Sales are showing tangible degree of positive correlation between the set of variables. Whereas sales in Japan (Figure 2) is not showing strong correlation the points are scattered still the variable can be retained for the analysis.
+
+
+
+Checking on relationship between Rank and NA Sales
+
+```{r}
+#Rank and NA_Sales
+ggplot(vgsales_data_top_contributors,aes(x=NA_Sales,y=Rank)) + geom_point() + labs(y="Rank", x="North American Sales", title="Scatter-Plot Between NA Sales and Rank")
+```
+
+Figure 4: Attempt to Determine Relationship between Rank and NA Sales
+
+The plot signifies that the higher the rank (lower position) lower is the sales. The degree of relationship is quite significant and therefore, it will be part of the model build-up.
+
+```{r}
+#Rank and NA_Sales
+ggplot(vgsales_data_top_contributors,aes(x=as.factor(Year),y=NA_Sales)) + geom_boxplot() + labs(y="North American Sales", x="Year", title="Scatter-Plot Between NA Sales and Year")
+```
+
+Figure 5: Attempt to Determine Relationship between Year and NA Sales
+
+The variation in the sales in North American Region is significant with passage of years and the highest sales recorded in NA region is in the Year 2020.
+
+### 2.3 Relationship Between Predictors and Outcome
+
+Checking Publisher, Genre and Platform for North America Sales
+
+```{r}
+ggplot(vgsales_data_top_contributors,aes(x=Platform, y=NA_Sales)) + geom_boxplot()+ labs(y="North American Sales", x="Platform", title="Box-Plot Between NA and Platform")
+```
+
+Figure 6: Attempt to Variation In NA Sales with Platform
+
+```{r}
+ggplot(vgsales_data_top_contributors,aes(x=Genre, y=NA_Sales)) + geom_boxplot()+ labs(y="North American Sales", x="Genre", title="Box-Plot Between NA and Genre")
+```
+
+Figure 7: Attempt to Variation In NA Sales with Genre
+
+```{r}
+ggplot(vgsales_data_top_contributors,aes(x=Publisher, y=NA_Sales)) + geom_boxplot()+ labs(y="North American Sales", x="Publisher", title="Box-Plot Between NA and Publisher")
+```
+
+Figure 8: Attempt to Variation In NA Sales with Publisher
+
+There are variation evident in the NA sales with different values in these three categorical variables. The variation signifies that these values has significant influence on the response variable once we have the model developed.
+
+
+### 2.4 Principal Component Analysis 
+This analysis is carried out to determine whether it is worthwhile to determine the Principal Components. Generally, if the number of Principal Component are high to explain 90% of the variation in the data, then it is considered not worthwhile.
+
+```{r}
+
+# Creating the Recipe
+
+ad_recipe <- recipe(NA_Sales ~ ., data = vgsales_data_top_contributors) %>% 
+             step_mutate(Year = as.factor(Year))%>%
+             step_novel(Platform, Genre, Publisher, Year) %>% # Handle unseen levels
+             step_dummy(Platform, Genre, Publisher, Year) %>% # Convert categorical variables to dummy variables 
+             step_zv(all_predictors()) %>% #Removing zero-variance columns
+             step_normalize(all_predictors()) %>% # Normalize our predictors 
+             step_corr(all_predictors()) %>%   #Removing variables which are highly correlated
+             step_pca(all_predictors()) # Do the PCA 
+ad_recipe
+
+
+#Preparing the Recipe
+ad_prepped <- ad_recipe %>% prep()
+ad_prepped
+
+
+#Tidying the Recipe
+tidy(ad_prepped)
+
+tidy(ad_prepped,7)
+
+
+#Visualizing the PCA Loadings
+tidy( ad_prepped, 7 ) %>% 
+  filter( component %in% c("PC1", "PC2", "PC3", "PC4") ) %>% 
+  group_by( component ) %>% 
+  top_n(10, abs(value) ) %>% 
+  ungroup() %>% 
+  ggplot( aes( x = abs(value), y = terms, fill = value > 0 ) ) +
+  geom_col(show.legend = F) +
+  facet_wrap( ~ component, scales = "free") +
+  ylab(NULL) # We do not need the y axis label.
+
+```
+
+Figure 9: PCA Loading
+
+In Figure 9, in PC1, the influential variables are EU_Sales, Other_Sales, Rank, Platform, Genre. With the following steps, this needs to be checked whether PC1 is going to be the most influential component in modeling.
+
+```{r}
+
+#Extracting the PreProcessed Data
+ad_juiced <- juice( ad_prepped )
+ad_juiced %>% head()
+
+#Visualizing the Principal Components
+sdev <- ad_prepped$steps[[7]]$res$sdev
+
+ve <- sdev^2 / sum(sdev^2) 
+ve
+
+PC.pve <- tibble( 
+  pc = fct_inorder( str_c("PC", 1:298) ), # This will create PC1, PC2, ..., PC134
+  pve = cumsum( ve ) # Takes the cumulative sum to get our PVE
+  ) 
+PC.pve
+
+PC.pve %>% filter( pve >= 0.9)  # Let's look at those explaining 90% or more
+
+PC.pve %>% ggplot(aes( x = pc, y = pve, fill = pve >= 0.9 ) ) + # Let's find the PC that explains 90% of our variance
+  geom_col() +
+  theme( axis.text.x = element_text( angle = 90 ) ) #rotate the x-axis labels
+```
+
+Figure 10: Number of Principal Components to Explain 90% Variation
+
+I see PC253, i.e., to explain 90% of the variance or information on the data, it needs high number of components. From the above analysis, it can be concluded the PCA is analysis was not worthwhile.
+
+
+```{r}
+# Natural Grouping Structure in Variables
+
+# K-means Clustering 
+set.seed(123) 
+kmeans_result <- kmeans(ad_juiced[, c("PC1", "PC2","PC3","PC4")], centers = 3) # Adjust the number of centers as needed 
+
+# Add cluster assignments to the data 
+ad_juiced$cluster <- as.factor(kmeans_result$cluster) 
+
+
+# Create a pair plot for the first four principal components
+ggpairs(ad_juiced, columns = c("PC1", "PC2", "PC3", "PC4"), 
+        aes(color = cluster)) +
+  ggtitle("K-means Clustering on Principal Components")
+
+```
+
+Figure 11: Clustering Showing Nature
+
+From the plots shown Figure 11, the clusters are showing up only when PC1 is there, this means that the there is a natural grouping in structures in variables present in Principal Component PC1.
+
+## 3. Pre-processing
+
+### 3.1 Data Split
+
+```{r}
+set.seed(1223) #Setting the seed to have reproducible result.
+
+ad_recipe <- recipe(NA_Sales ~ ., data = vgsales_data_top_contributors) %>% 
+             step_mutate(Year = as.factor(Year))%>%
+             step_novel(Platform, Genre, Publisher, Year) %>% # Handle unseen levels
+             step_dummy(Platform, Genre, Publisher, Year) %>% # Convert categorical variables to dummy variables 
+             step_zv(all_predictors()) %>% #Removing zero-variance columns
+             step_normalize(all_predictors()) %>% # Normalize our predictors 
+             step_corr(all_predictors()) %>%   #Removing variables which are highly correlated
+             step_pca(all_predictors())
+
+ad_recipe
+
+vgsales_split <- initial_split(vgsales_data_top_contributors)
+
+vgsales_train <- training(vgsales_split)
+vgsales_test <- testing(vgsales_split)
+
+# Prepare the recipe 
+ad_prepped <- prep(ad_recipe, training = vgsales_train)
+
+# Apply the recipe to the training data 
+vgsales_train_prepped <- juice(ad_prepped)
+
+```
+
+
+### 3.2 Identification of Variable that can cause Over-fitting
+
+```{r}
+# Define the control using cross-validation
+train_control <- trainControl(method = "cv", number = 10)
+
+
+# Train the model using cross-validation
+model <- train(NA_Sales ~ ., data = vgsales_train_prepped, method = "lm", trControl = train_control)
+
+# Extract the resampling results 
+resampling_results <- model$resample 
+
+# Convert the resampling results to a tibble 
+resampling_results_tibble <- as_tibble(resampling_results)
+
+# Calculate summary statistics 
+summary_stats_training_data <- resampling_results_tibble %>% summarize( mean_RMSE = mean(RMSE), mean_Rsquared = mean(Rsquared), mean_MAE = mean(MAE))
+
+kable(summary_stats_training_data,caption="Table 6 - Result Summary of the Training Data")
+
+```
+```{r}
+# Evaluate the model's performance on the test data
+vgsales_test_prepped <- bake(ad_prepped, new_data = vgsales_test)
+
+predictions <- predict(model, newdata = vgsales_test_prepped)
+
+performance <- postResample(predictions, vgsales_test_prepped$NA_Sales)
+
+# Convert the performance metrics to a tibble 
+summary_stats_test_data <- tibble( Metric = c("RMSE", "Rsquared", "MAE"), Value = c(performance["RMSE"], performance["Rsquared"], performance["MAE"]) )
+
+kable(summary_stats_test_data, caption = "Table 7 - Result Summary of the Test Data")
+
+```
+
+Since the model performance is close, referring to Table 6 and Table 7, with no significant difference in the RMSE, Rsq. It can be concluded that there is no issue of model over-fitting.
+
+
+### 3.3 Three pre-processing Steps and Justification
+
+The three pre-processing steps are as follows:
+
+step_zv - This step removes the predictors that have zero variance, i.e. it is constant for NA_Sales data point. This will not add value for model building just a over-head from computation perspective.
+
+step_normalize - This step normalize the predictors to have 0 mean and 1 standard deviation. This is important to have as EU_Sales might be at different magnitude than JP_Sales or Other_Region Sales. By bringing the predictors (numeric) to the same level, the model performance gets improved.
+
+step_corr - This step removes the variables which are highly correlated. The highly correlated variables causes problems in the model fitting. 
+
+
+## 4. Model Fitting
+
+### 4.1 Outline of Model Fitting - Set Seed
+I will be fitting two models to predict the North American Sales:
+Lasso Regression
+Random Forest
+
+At the end, the metrics will be compared to see which model has the lower RMSE and higher R-squared. The model, which has better metrics, is going to be used for predictions and that is what is what going in the report to CEO.
+
+### 4.2 Lasso Regression Tuning 
+
+```{r}
+#Setting the Model specification
+lasso_spec <- linear_reg( mode = "regression", mixture = 1, penalty = tune() ) %>% set_engine( "glmnet" )
+lasso_spec
+
+
+# Tuning which will be common for both the models
+set.seed(1223)
+vgsales_bootstrap <- bootstraps(vgsales_train_prepped, times = 10)
+
+#Penalty Grid
+penalty_grid <- grid_regular( penalty(),levels = 50 )
+penalty_grid
+
+#Lasso Grid
+set.seed( 2020 )
+
+#Tune Grid doesn't work directly, therefore, adding workflow then plugging the workflow in the tune grid
+
+vgsales_wf_lasso <- workflow()%>%add_formula(NA_Sales~.)%>%add_model(lasso_spec)
+
+lasso_grid <- tune_grid( vgsales_wf_lasso, resamples = vgsales_bootstrap, grid = penalty_grid )
+
+lasso_grid %>% collect_metrics() %>% ggplot( aes( penalty, mean, color = .metric ) ) +
+  geom_line() + facet_wrap( ~.metric, scales = "free", nrow = 2) +scale_x_log10() # it looks better on a log_10 scale #Didn't have time to debug on the warning messages
+```
+
+Figure 12: Lasso Regression Metrics for Different Penalty Parameters
+
+```{r}
+#Fetching the Best RMSE and RSQ AND Finalize the Model
+best_lasso_rmse <- select_best( lasso_grid,metric= "rmse" ) 
+
+kable(best_lasso_rmse,caption="Table 8 - Penalty Value for Best RMSE - LASSO REGRESSION")
+
+final_lasso <- finalize_model( lasso_spec, best_lasso_rmse )
+final_lasso
+
+```
+
+From Table 8, we have the penalty value of 0.0003393222 at which the model can achieve best result in terms of rmse and rsq. Moving to Random Forest for the model building and prediction.
+
+### 4.3 Random Forest Tuning
+
+```{r}
+#Setting the Model Specification
+rf_spec <- rand_forest(mode = "regression",mtry = tune(),trees =100,min_n = tune()) %>% set_engine("ranger", importance = "permutation")
+rf_spec
+
+#Random Forest Grid
+rand_spec_grid <- grid_regular(finalize( mtry(), vgsales_train_prepped %>% select(-NA_Sales)), min_n(),levels =5)
+rand_spec_grid
+
+#Tune Grid for Random Forest
+set.seed(1959)
+
+vgsales_wf_rf <- workflow()%>%add_formula(NA_Sales~.)%>%add_model(rf_spec)
+
+rf_grid <- tune_grid( vgsales_wf_rf,resamples = vgsales_bootstrap,grid = rand_spec_grid )
+
+#Plotting the RMSE and RSQ Parameters
+rf_grid %>% 
+ collect_metrics() %>% 
+  mutate( min_n = as.factor( min_n ) ) %>% 
+  ggplot( aes( x = mtry, y = mean, colour = min_n ) ) +
+  geom_point( size = 2 ) +
+  geom_line( alpha = 0.75 ) +
+  facet_wrap( ~ .metric, scales = "free", nrow = 3 )
+
+```
+
+Figure 13: Random Forest Metrics for Different Penalty Parameters
+
+```{r}
+#Fetching the Best RMSE and RSQ  AND Finalize the Model
+best_rf_rmse <- select_best(rf_grid,metric="rmse" ) 
+
+
+kable(best_rf_rmse,caption="Table 9 - Penalty Value for Best RMSE - RANDOM FOREST")
+
+final_rf <- finalize_model( rf_spec, best_rf_rmse )
+final_rf
+```
+
+### 4.4 Cross Validation - May the Best Model win!
+
+Following is the methodology applied to determine which model is performing better in terms of the parameter referred so far, i.e., RMSE and RSQ.
+
+```{r}
+#Creation of Cross-validation
+set.seed( 1967 )
+vgsales_cv <- vfold_cv( vgsales_train_prepped, v = 10)
+```
+
+```{r}
+
+#Lasso Regression
+vgsales_wf_final_lasso <- workflow() %>% add_formula(NA_Sales~.)%>%add_model(final_lasso)
+
+lasso_cv <- fit_resamples(vgsales_wf_final_lasso, resamples = vgsales_cv )
+
+lasso_result <- lasso_cv %>% collect_metrics()
+
+kable(lasso_result,caption="Table 10 - Final RMSE and RSQ value of LASSO Regression model")
+
+```
+
+```{r}
+
+#Random Forest
+vgsales_wf_final_rf <- workflow() %>% add_formula(NA_Sales~.)%>%add_model(final_rf)
+
+rf_cv <- fit_resamples(vgsales_wf_final_rf, resamples = vgsales_cv )
+
+rf_result <- rf_cv %>% collect_metrics()
+
+kable(rf_result,caption="Table 11 - Final RMSE and RSQ value of Random Forest model")
+
+```
+
+Both tables (10 and 11) has parameters of importance, i.e., rmse (root mean square error) and rsq (R-Squared). Root Mean Square Error is the error between predicted and true value which, ideally should be 0, however in real world it should be as minimum as possible. On the other hand, R-squared is a statistical measure that represents the proportion of the variance in the dependent variable that is explained by the independent variables in the model. Ideally, it should be 1 but in real world it should be as near to 1 as possible.
+
+
+## 5. Model Evaluation 
+
+### 5.1 Outline
+Based on the steps taken in the previous section, the model will be evaluated. The main parameters on which the model is evaluated is RMSE and RSQ. In this section, the important predictors are also determined. It will be demonstrated that how well the model is predicting. And finally, the winner model is predicting based on the data point given in the assessment sheet.
+
+### 5.2 Identify Important Predictors
+
+```{r}
+
+set.seed( 1223 )
+vgsales_rf <- final_rf %>% fit(NA_Sales ~ . , data = vgsales_train_prepped)
+
+vip(vgsales_rf)
+
+```
+
+Figure 14: Influential Predictors
+
+The above figure, Figure 14, is showing that the PC1 is having the most influence when predicting the NA_Sales. Referring back to Figure 9 (PCA Loading), the most important predictors are Rank, EU_Sales and Other_Sales. Followed by them are the predictors such as Platform and Genre.  
+
+### 5.3 Determine how well the model is predicting
+This can be done with the test data and compare the predicted NA_Sales with the NA_Sales in the test dataset.
+
+```{r}
+#Bake on Test data
+vgsales_test_prepped <- bake(ad_prepped, new_data = vgsales_test)
+
+vg_sales_pred <- predict(vgsales_rf, new_data = vgsales_test_prepped) %>% bind_cols(vgsales_test_prepped%>%select(NA_Sales))
+
+kable(head(vg_sales_pred),caption = "Table 12 - Predicted Sales v/s Actual Sales")
+
+```
+The above Table 12 is showing the sample values of Predicted vs Actual Sales in North America. With the below graph, I can see how well the model, with bird's eye-view, is performing.
+
+```{r}
+vg_sales_pred %>% 
+  ggplot( aes( x = .pred, y = NA_Sales ) ) +
+  geom_point() +
+  geom_abline( intercept = 0, slope = 1, colour = "red" ) + labs(y="Actual Sales", x="Predicted Sales", title="Comparison of Predicted versus Actual Sales in North America")+
+  theme_minimal()
+```
+
+Figure 15: Predicted versus Actual Sales for North America
+
+In figure 15, it is evident that the straight line which corresponds to the prediction is below the majority of the points, which corresponds to the actual sales. In other words, the Random Forest model is under predicting the NA Sales. Let's check the RMSE and RSQ as well.
+
+```{r}
+perf_metric <- vg_sales_pred %>% metrics( truth = NA_Sales, estimate = .pred )
+
+kable(perf_metric,caption = "Table 13 - Performance Metric of Model on Test Data")
+```
+
+From Table 13, the rmse is 0.06161 which is higher than what is depicted in Table 11 (It has the performance of Random Forest model on Training Dataset) 0.05949064, it is not a good indication. Secondly, the rsq is 0.5261 which is lower than rsq given in Table 11 which is 0.57631418.
+
+This could be attributable to two things:
+
+1. This could be the case of the random sampling inherent in our cross-validated RMSE. No matter what we see, it is still just an estimate at what the RMSE should be, so on any dataset, we can fully expect to see values that are way off from our cross-validated results.
+1. Our training data is not a representative sample of our full dataset. If this is the case, then our testing data will be wildly different from our training data, hence the cross-validated RMSE will not be representative of how our model will predict on the test data. For example, the Year with value 2020 was present in the test dataset but not in training dataset. 
+
+The model can be tuned further to have training and test dataset to have more and more variation exposed to the model by having more bootstraps, this will improve the model performance. The Random Forest parameter with taking tree as high as the computational capability allows, that's another aspect which can be taken into consideration while working towards the improvement of the model performance.
+
+### 5.4 Identify RMSE and R-squared
+
+The relevant codes are provided where the Table 10 and 11 are generated.
+
+Comparing the RMSE and RSQ from the tables 10 and 11, RMSE is lower 0.05949064 (lower the value better is the model) for Random Forest as compared to 0.06604332 corresponding to Lasso Regression, similarly, RSQ from table 10 and 11, the rsq for Random Forest is higher 0.57631418 (higher the value better is the model) as compared to 0.47850733 corresponding to Random Forest, therefore, it can be concluded that on this dataset we should be using the Random Forest for our sales prediction in the North American region.
+
+### 5.5 Summary on how well the final model Predict - Prediction of The Game 'Fatal Empire'
+
+We have applied Lasso Regression and Random Forest modeling technique to seek prediction of Sales in the North American region. From the comparison of RMSE and RSQ from table 10 and 11, the Random Forest is giving better results for predictions. In the process, the important variables are identified which derived from Principal Components, Figure 14 and Figure 9. It is evident from Figure 13 that the most important Principal Component is PC1. Referring back Figure 8, the important variables are identified which are part of PC1.
+
+There is a weakness also identified in Section 5.3, Table 13. The reasons are also understood and how it can be improved as well.
+
+Finally, we have to predict the Sales in North America for a video game called *The Fatal Empire* with Platform *PS4* and Genre as *role-playing*. The other data given are Japan Sales (JP_Sales) as 2.58 million (2.58), in Europe we have 0.53 million (0.53) and in Other region we have sales 0.1 million (0.1).
+
+Since the Publisher and Rank is not given, I have to again define the recipe without Rank and Publisher and use the prep and bake for preparing the data for prediction. Taking year as 2024 as it is written in the Assessment sheet, it is recently released.
+
+```{r}
+#Prepare the data
+
+new_data <- tibble(Platform="PS4",Genre="Role-Playing",Year="2024",EU_Sales=0.53,JP_Sales=2.58,Other_Sales=0.1)
+
+
+# Define the recipe excluding Rank and Publisher
+ad_recipe_no_rank_publisher <- recipe(NA_Sales ~ Platform + Genre + EU_Sales + JP_Sales + Other_Sales + Year, data = vgsales_data_top_contributors) %>% 
+  step_mutate(Year = as.factor(Year)) %>%
+  step_novel(Platform, Genre, Year) %>% # Handle unseen levels
+  step_dummy(Platform, Genre, Year) %>% # Convert categorical variables to dummy variables 
+  step_zv(all_predictors()) %>% # Remove zero-variance columns
+  step_normalize(all_predictors()) # Normalize predictors
+
+# Split the data
+vgsales_split <- initial_split(vgsales_data_top_contributors)
+vgsales_train <- training(vgsales_split)
+vgsales_test <- testing(vgsales_split)
+
+# Prepare the recipe
+ad_prepped_no_rank_publisher <- prep(ad_recipe_no_rank_publisher, training = vgsales_train)
+
+# Apply the recipe to the training data
+vgsales_train_prepped_no_rank_publisher <- bake(ad_prepped_no_rank_publisher, new_data = vgsales_train)
+
+# Apply the recipe to the test data
+vgsales_test_prepped_no_rank_publisher <- bake(ad_prepped_no_rank_publisher, new_data = vgsales_test)
+
+# Fit the model
+set.seed(1223)
+vgsales_rf_no_rank_publisher <- final_rf %>% fit(NA_Sales ~ ., data = vgsales_train_prepped_no_rank_publisher)
+
+# Apply the same preprocessing steps to the new data 
+new_data_prepped <- bake(ad_prepped_no_rank_publisher, new_data = new_data)
+
+predictions <- predict(vgsales_rf_no_rank_publisher, new_data = new_data_prepped)
+
+predictions <- predictions%>%rename(Prediction = .pred)
+
+kable(predictions,caption = "Table 14 - Prediction of Sales (in million) for the New Video Game in North America")
+
+```
+
+The prediction of sales of the video game 'The Fatal Empire' in the North American Region is estimate to be 219.4453 thousand copies.

@@ -1,0 +1,511 @@
+---
+title: "Report to Melbourne Water Corporation (MWC)"
+author: "Rochit Marcus"
+date: "Due 11 August 2024"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+## Executive Summary
+
+Water is a vital resource for the sustainability of life on this planet. With the increase in population overall in the world with population being concentrated in big cities this has posed a major challenge in having a continuous supply of water. The situation is taken care by building dams and reservoirs outside the city area. Though there are some opposition for building of them but actually building these infrastructures have helped in saving water. Reservoirs built to store during rainy days so that the excess will be used in the season when there is lesser rain fall [1] Norwegian SciTech News 2017 <https://norwegianscitechnews.com/2017/03/water-reservoirs-save-lives-create-value/>. 
+
+There is another challenge, loss of water due to evaporation. The loss due to evaporation from lakes at a global level is a critical component of the terrestrial water and energy balance [2] Zhao G. et al 2022. Hence the motivation for this work. 
+
+In the present scenario, Melbourne Water Corporation (MWC) is seeking to forecast the amount of evaporation (in mm) to strengthen their water saving initiatives. Though there are some known environmental factors which affects the rate of evaporation, however since there are financial aspects with such initiatives, therefore, it is necessary to undertake certain data analysis to enable the forecasting of evaporation on a certain day and with given environmental factors such as humidity and temperatures. In the following sections, the details are provided on what data is analysed, the model followed by the interpretation of the coefficients and the relevant parameters involved. The analysis would be accompanied with the relevant plots and charts to illustrate the findings. Finally, the report will be ended with the conclusion.
+
+## Methods
+
+```{r setup - library invoke, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(moments)
+library(modelr)
+library(knitr)
+library(corrplot)
+```
+
+
+```{r Setting Work Directory, include = FALSE}
+setwd("B:/Master Studies/Course Works/7201OL - Data Taming Modelling and Visualisation/Assessments/Assessment 3")
+
+getwd()
+```
+
+The data has been provided in a csv file. The data is one financial year worth starting from 01st of July 2018 to 30th of June 2019. There are 21 variables are given as shown in a snapshot (Table 1).
+
+```{r Loading of Data and Columns Selection}
+melb_weather <- read.csv("melbourne.csv") 
+
+
+melb_weather$Date <- as.Date(melb_weather$Date, format = "%Y-%m-%d")
+
+kable(head(melb_weather), caption = "Table 1 - Melbourne Weather")
+```
+
+Out of them the variables of interest are the following:
+
+1. Month.
+2. Day of the Week.
+3. Maximum Temperature in degree C.
+4. Minimum Temperature in degree C.
+5. Relative Humidity at 9 AM.
+
+The month and day of the week can be derived from the Date variable in the dataset. The maximum temperature is the maximum temperature of the day mentioned in Date variable, similarly the minimum temperature is the minimum temperature of the day. The relative humidity is measured and recorded at 9 AM.
+
+```{r Selecting the Relevant fields and extraction of Month, Day of the Week}
+melb_weather <- melb_weather %>% select(Date, Maximum.Temperature..Deg.C., Minimum.temperature..Deg.C.,X9am.relative.humidity....,Evaporation..mm.)
+
+melb_weather <- melb_weather %>% mutate(month_name = month(Date, label = TRUE, abbr = FALSE), day_of_week = weekdays(Date))
+
+melb_weather$day_of_week <- factor(melb_weather$day_of_week, levels = c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"))
+```
+
+The month and Day of the week are temporal ordered categorical variable and the other three are quantitative variables. The exploratory data analysis is carried out in R software, version 4.4.1. In the next sub-section, the individual data variables are explored, analysed on the distribution and checked if there are outliers present in the data. The figures and tables would be referenced at the relevant places. 
+
+### Exploratory Data Analysis
+The month and day of the week are extracted from the Date field and the four quantitative variables are selected and renamed, following the principle of data taming, the snapshot of the output of the data is captured in Table 2. 
+
+```{r Renaming of the Fields}
+melb_weather <- melb_weather %>% rename(maximum_temperature_in_degC = `Maximum.Temperature..Deg.C.`, minimum_temperature_in_degC = `Minimum.temperature..Deg.C.`, relative_humidity_percentage = X9am.relative.humidity...., evaporation_in_mm = Evaporation..mm.)
+
+
+kable(head(melb_weather), caption = "Table 2 - Melbourne Weather with Month, Day of the Week and Renaming Fields")
+```
+
+Following the pre-processing, uni-variate, bi-variate and tri-variate analysis are performed to understand the data as well as to draw any relationships among the variables.
+
+**Uni-variate Analysis**
+<br>
+In this analysis, following aspects are taken into focus:
+
+1. Shape - From the figures 1(a), 2(a), 3(a) and 4(a), it can be said that the distribution for maximum temperature, minimum temperature, relative humidity and evaporation, respectively, are uni-modal. Though there is a hint of skewness in all of them, evaporation (Figure 4(a)) displays the maximum.
+
+```{r fig.cap="Figure 1(a): Histogram of Maximum Temperature"}
+ggplot(melb_weather, aes(x=maximum_temperature_in_degC)) + geom_histogram(binwidth = 2) + labs(x="Maximum Temperature in degC")
+```
+```{r fig.cap="Figure 2(a): Histogram of Minimum Temperature"}
+ggplot(melb_weather, aes(x=minimum_temperature_in_degC)) + geom_histogram(binwidth = 2) + labs(x="Minimum Temperature in degC")
+```
+```{r fig.cap="Figure 3(a): Histogram of Relative Humidity"}
+ggplot(melb_weather, aes(x=relative_humidity_percentage)) + geom_histogram(binwidth = 5) + labs(x="Relative Humidity")
+```
+```{r fig.cap="Figure 4(a): Histogram of Evaporation"}
+ggplot(melb_weather, aes(x=evaporation_in_mm)) + geom_histogram(binwidth = 2) + labs(x="Evaporation in mm")
+```
+
+2. Location - From the table 3, the median for maximum temperature, minimum temperature, relative humidity and evaporation in mm are 19.7 deg C, 11.4 deg C, 68% and 4.6mm, respectively. The means for variables, in the same order, are 20.9 deg C, 11.8 deg C, 68.2% and 5.31mm, respectively. 
+
+3. Spread - From table 3, the standard deviation for maximum temperature, minimum temperature, relative humidity and evaporation in mm are 6.31 deg C, 4.53 deg C, 13.56% and 3.49mm. Based on this numbers, spread for humidity is significant.
+
+```{r Summary of Quantitative Variables - Univariate Analysis}
+summary_max_temp <- summarise(melb_weather, 
+               'Min Value' = min(maximum_temperature_in_degC, na.rm = TRUE), 
+               '1st Quartile' = quantile(maximum_temperature_in_degC, 0.25, na.rm = TRUE),
+               Median = median(maximum_temperature_in_degC, na.rm=TRUE),
+               Mean = mean(maximum_temperature_in_degC, na.rm = TRUE),
+               '3rd Quartile' = quantile(maximum_temperature_in_degC, 0.75, na.rm = TRUE),
+               'Max Value' = max(maximum_temperature_in_degC, na.rm = TRUE),
+               'Standard Deviation' = sd(maximum_temperature_in_degC, na.rm = TRUE),
+               Skewness = skewness(maximum_temperature_in_degC,na.rm=TRUE))
+
+summary_min_temp <- summarise(melb_weather, 
+               'Min Value' = min(minimum_temperature_in_degC, na.rm = TRUE), 
+               '1st Quartile' = quantile(minimum_temperature_in_degC, 0.25, na.rm = TRUE),
+               Median = median(minimum_temperature_in_degC, na.rm=TRUE),
+               Mean = mean(minimum_temperature_in_degC, na.rm = TRUE),
+               '3rd Quartile' = quantile(minimum_temperature_in_degC, 0.75, na.rm = TRUE),
+               'Max Value' = max(minimum_temperature_in_degC, na.rm = TRUE),
+               'Standard Deviation' = sd(minimum_temperature_in_degC, na.rm = TRUE),
+               Skewness = skewness(minimum_temperature_in_degC,na.rm=TRUE))
+
+summary_relative_humidity <- summarise(melb_weather, 
+               'Min Value' = min(relative_humidity_percentage, na.rm = TRUE), 
+               '1st Quartile' = quantile(relative_humidity_percentage, 0.25, na.rm = TRUE),
+               Median = median(relative_humidity_percentage, na.rm=TRUE),
+               Mean = mean(relative_humidity_percentage, na.rm = TRUE),
+               '3rd Quartile' = quantile(relative_humidity_percentage, 0.75, na.rm = TRUE),
+               'Max Value' = max(relative_humidity_percentage, na.rm = TRUE),
+               'Standard Deviation' = sd(relative_humidity_percentage, na.rm = TRUE),
+               Skewness = skewness(relative_humidity_percentage,na.rm=TRUE))
+
+summary_evaporation <- summarise(melb_weather, 
+               'Min Value' = min(evaporation_in_mm, na.rm = TRUE), 
+               '1st Quartile' = quantile(evaporation_in_mm, 0.25, na.rm = TRUE),
+               Median = median(evaporation_in_mm, na.rm=TRUE),
+               Mean = mean(evaporation_in_mm, na.rm = TRUE),
+               '3rd Quartile' = quantile(evaporation_in_mm, 0.75, na.rm = TRUE),
+               'Max Value' = max(evaporation_in_mm, na.rm = TRUE),
+               'Standard Deviation' = sd(evaporation_in_mm, na.rm = TRUE),
+               Skewness = skewness(evaporation_in_mm,na.rm=TRUE))
+
+data_summary <- bind_rows(summary_max_temp,summary_min_temp,summary_relative_humidity,summary_evaporation)
+
+data_summary <- cbind("Variable"=c("Maximum Temperature","Minimum Temperature","Relative Humidity","Evaporation"),data_summary)
+
+kable(data_summary, caption = "Table 3 - Summary of Quantitative Variables")
+```
+
+4. Outliers - From the figures 1(b), 2(b), 3(b) and 4(c), which are corresponding to maximum temperature, minimum temperature, relative humidity and evaporation, respectively, the maximum number of outliers are visible in box-plot for evaporation with least number in minimum temperature.
+
+```{r fig.cap="Figure 1(b): Boxplot of Maximum Temperature"}
+ggplot(melb_weather, aes(y=maximum_temperature_in_degC)) + geom_boxplot() + labs(y="Maximum Temperature in deg C")
+```
+```{r fig.cap="Figure 2(b): Boxplot of Minimum Temperature"}
+ggplot(melb_weather, aes(y=minimum_temperature_in_degC)) + geom_boxplot() + labs(y="Minimum Temperature in deg C")
+```
+```{r fig.cap="Figure 3(b): Boxplot of Relative Humidity"}
+ggplot(melb_weather, aes(y=relative_humidity_percentage)) + geom_boxplot() + labs(y="Relative Humidity")
+```
+```{r fig.cap="Figure 4(c): Boxplot of Evaporation"}
+ggplot(melb_weather, aes(y=evaporation_in_mm)) + geom_boxplot() + labs(y = "Evaporation in mm")
+
+```
+
+
+Another observation is, that the magnitude of the skewness in evaporation is highest, but after applying log transformation, the skewness softens up. As evident in Table 4, the skewness of evaporation is 1.32 and after applying log transformation it is -0.15, though the direction of skewness has reversed but the magnitude got down. 
+```{r Justfication of log transformation on Evaporation}
+summary_evaporation <- summarise(melb_weather, 
+               'Min Value' = min(evaporation_in_mm, na.rm = TRUE), 
+               '1st Quartile' = quantile(evaporation_in_mm, 0.25, na.rm = TRUE),
+               Median = median(evaporation_in_mm, na.rm=TRUE),
+               Mean = mean(evaporation_in_mm, na.rm = TRUE),
+               '3rd Quartile' = quantile(evaporation_in_mm, 0.75, na.rm = TRUE),
+               'Max Value' = max(evaporation_in_mm, na.rm = TRUE),
+               'Standard Deviation' = sd(evaporation_in_mm, na.rm = TRUE),
+               Skewness = skewness(evaporation_in_mm,na.rm=TRUE))
+
+summary_log_evaporation <- summarise(melb_weather, 
+               'Min Value' = min(log(evaporation_in_mm + 1), na.rm = TRUE), 
+               '1st Quartile' = quantile(log(evaporation_in_mm + 1), 0.25, na.rm = TRUE),
+               Median = median(log(evaporation_in_mm + 1), na.rm=TRUE),
+               Mean = mean(log(evaporation_in_mm + 1), na.rm = TRUE),
+               '3rd Quartile' = quantile(log(evaporation_in_mm + 1), 0.75, na.rm = TRUE),
+               'Max Value' = max(log(evaporation_in_mm + 1), na.rm = TRUE),
+               'Standard Deviation' = sd(log(evaporation_in_mm + 1), na.rm = TRUE),
+               Skewness = skewness(log(evaporation_in_mm + 1),na.rm=TRUE))
+
+summary_evaporation_data <- rbind(summary_evaporation, summary_log_evaporation)
+
+summary_evaporation_data <- cbind("Variable"=c("Evaporation","Log Transformed Evaporation"),summary_evaporation_data)
+
+kable(summary_evaporation_data, caption = "Table 4 - Comparison of Skewness of Evaporation with and without Log Transformation")
+```
+It is also evident from the Figures 4(a) and 4(b).
+```{r fig.cap = "Figure 4(b): Histogram of Log transformed Evaporation"}
+ggplot(melb_weather, aes(x=log(evaporation_in_mm + 1))) + geom_histogram(binwidth = 0.5) + labs(x = "Log Transformed Evaporation")
+```
+
+Post log transformation the number of outliers have also reduced (Figure 4(d)).
+```{r fig.cap = "Figure 4(d): Boxplot of Log transformed Evaporation"}
+ggplot(melb_weather, aes(y=log(evaporation_in_mm + 1))) + geom_boxplot() + labs(y = "Log Transformed Evaporation")
+```
+Based on the skewness and histogram, the predictor variables are can be safely considered as normal, however, the response variable, i.e., evaporation is skewed as evident in Table 4. With log transformation, it is improved as evident in Figure 4(b). Hence, log transformed evaporation will be used as response variable for modelling and prediction.
+
+
+**Bi-variate Analysis**
+<br>
+In this analysis, the interaction among the variables are observed which serves a basis to come up with the initial iteration of linear modeling. 
+
+A correlation matrix is created (Figure 5) to have a look at the correlation coefficient among the variables. From this matrix, the highest magnitude of correlation is displayed between evaporation and minimum temperature followed by maximum temperature and relative humidity. This looks promising to see how it turns out in the formulation of the linear modeling.
+```{r fig.cap = "Figure 5: Correlation Matrix for Quantitative Variables - Bivariate Analysis"}
+selected_data <- data.frame(
+  maximum_temperature_in_degC = melb_weather$maximum_temperature_in_degC,
+  minimum_temperature_in_degC = melb_weather$minimum_temperature_in_degC,
+  relative_humidity_percentage = melb_weather$relative_humidity_percentage,
+  log_evaporation_in_mm = log(melb_weather$evaporation_in_mm + 1)
+)
+
+correlation_matrix <- cor(selected_data, use = "complete.obs")
+
+corrplot(correlation_matrix, method = "number", tl.col="black", tl.srt = 45)
+
+```
+
+
+There is a pattern evident of maximum and minimum temperature variation along the month (Figure 6), the maximum and minimum temperature dips in the month of May, June, July and August. This is quite expected, Melbourne winter in these months. This prompts to include the interaction between both temperatures and month in the model.
+```{r fig.cap="Figure 6: Relationship Between Temperature and Month"}
+melb_weather_long <- gather(melb_weather,key = temperature_type, value = "temperature", maximum_temperature_in_degC:minimum_temperature_in_degC)
+
+melb_weather_long <- melb_weather_long %>% mutate(temperature_type = recode(temperature_type,maximum_temperature_in_degC = "Maximum Temperature", minimum_temperature_in_degC="Minimum Temperature"))
+
+ggplot(melb_weather_long, aes(x=month_name, y=temperature, col=temperature_type)) + geom_boxplot() + labs(y = "Temperature",x="Month", col="Temperature Range") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+Figure 7, which is the plot between relative humidity and month displaying a faint pattern which prompts to include the interaction term of month and relative humidity in the modeling. In Figure 8, plot between evaporation and month are displaying a pretty strong pattern which might cause to have a strong statistical relationship in the linear model. 
+```{r fig.cap = "Figure 7: Relationship Between Humidity and Month"}
+ggplot(melb_weather, aes(x=month_name, y=relative_humidity_percentage)) + geom_boxplot() + labs(y = "Relative Humidity",x="Month") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+```{r fig.cap = "Figure 8: Relationship Between Evaporation and Month"}
+ggplot(melb_weather, aes(x=month_name, y=log(evaporation_in_mm + 1))) + geom_boxplot() + labs(y = "Evaporation",x="Month") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+
+There is no such pattern appearing with day of the week (Figure 9, 10 and 11).
+```{r fig.cap = "Figure 9: Relationship Between Temperature and Day of the Week"}
+ggplot(melb_weather_long, aes(x=day_of_week, y=temperature, col=temperature_type)) + geom_boxplot() + labs(y = "Temperature",x="Day of the Week", col="Temperature Range") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+
+```{r fig.cap = "Figure 10: Relationship Between Humidity and Day of the Week"}
+ggplot(melb_weather, aes(x=day_of_week, y=relative_humidity_percentage)) + geom_boxplot() + labs(y = "Relative Humidity",x="Day of the Week") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+
+```{r fig.cap = "Figure 11: Relationship Between Evaporation and Day of the Week"}
+ggplot(melb_weather, aes(x=day_of_week, y=log(evaporation_in_mm + 1))) + geom_boxplot() + labs(y = "Evaporation",x="Day of the Week") + theme(axis.text.x = element_text(angle = 90, size = 8))
+```
+
+Similarly, there is no strong pattern emerging between relative humidity and maximum and minimum temperature (Figure 12 and 13). 
+```{r fig.cap = "Figure 12: Exploring Relationship Between Relative Humidity and Maximum Temperature"}
+ggplot(melb_weather, aes(x=maximum_temperature_in_degC, y=relative_humidity_percentage)) + geom_point() + labs(x="Maximum Temperature", y="Relative Humidity")
+```
+```{r fig.cap = "Figure 13: Exploring Relationship Between Relative Humidity and Minimum Temperature"}
+ggplot(melb_weather, aes(x=minimum_temperature_in_degC, y=relative_humidity_percentage)) + geom_point() + labs(x="Minimum Temperature", y="Relative Humidity")
+```
+
+However, there is a faint pattern present between relative humidity and evaporation as shown in Figure 14. 
+```{r fig.cap = "Figure 14: Exploring Relationship Between Relative Humidity and Evaporation"}
+ggplot(melb_weather, aes(x=relative_humidity_percentage, y=log(evaporation_in_mm + 1))) + geom_point() + labs(x="Relative Humidity", y="Evaporation")
+```
+
+Similarly, there is pattern between minimum and maximum temperatures with evaporation in Figure 15 and 16. However, there is a kind of spread in the scatter-plot of maximum temperature and evaporation and the spread is less in comparison in the scatter-plot of minimum temperature and evaporation.
+```{r fig.cap = "Figure 15: Exploring Relationship Between Maximum Temperature and Evaportation"}
+ggplot(melb_weather, aes(x=maximum_temperature_in_degC, y=log(evaporation_in_mm + 1))) + geom_point() + labs(x="Maximum Temperature", y="Evaporation")
+```
+
+```{r fig.cap = "Figure 16: Exploring Relationship Between Minimum Temperature and Evaportation"}
+ggplot(melb_weather, aes(x=minimum_temperature_in_degC, y=log(evaporation_in_mm + 1))) + geom_point() + labs(x="Minimum Temperature", y="Evaporation")
+```
+
+**Tri-variate Analysis**
+
+There is a Tri-variate analysis is provided (Figure 17) in which the changes in the correlation matrix with month throughout the financial year is displayed. The interaction terms are included in the model based on those values.
+```{r fig.cap = "Figure 17: Effect of month in year on Correlation Matrix for Quantitative Variables - Tri-variate Analysis"}
+split_data <- split(melb_weather, melb_weather$month_name)
+
+correlation_matrices <- lapply(split_data, function(subset) {
+  cor(subset[, c("maximum_temperature_in_degC", "minimum_temperature_in_degC", "relative_humidity_percentage", "evaporation_in_mm")], use = "complete.obs")
+})
+
+
+for (i in 1:length(correlation_matrices)) {
+  corrplot(correlation_matrices[[i]], method = "number", tl.col = "black", tl.srt = 30)
+            title(main = paste(names(correlation_matrices)[i]))
+  # Pause between plots to allow viewing each one
+  readline(prompt = "Press [Enter] to see the next plot")
+}
+```
+*Note: Took help from Microsoft Copilot on how to project the Correlation Matrix for different months and for the layout of the plot.*
+
+### Model Building and Selection
+<br>
+The model is built with the terms Month, Day of the week, maximum and minimum temperature, relative humidity along with the interaction terms of month with maximum temperature, month with minimum temperature, month with relative humidity as well as the interaction between the maximum and minimum temperatures as they are having strong correlation (Figure 5). There will be a couple of iterations in which the terms with no strong statistical significance (probability more than the p-value) will be dropped with every iteration.
+
+**Iteration 1**
+```{r Iteration 1}
+melb_weather_lm1 <- lm(log(evaporation_in_mm + 1) ~ month_name + day_of_week + maximum_temperature_in_degC + minimum_temperature_in_degC + relative_humidity_percentage + month_name:maximum_temperature_in_degC + month_name:minimum_temperature_in_degC + month_name:relative_humidity_percentage + maximum_temperature_in_degC:minimum_temperature_in_degC, data = melb_weather)
+
+summary(melb_weather_lm1)
+```
+Table 5(a): Iteration 1 Summary Statistics
+<br>
+```{r}
+anova(melb_weather_lm1)
+```
+Table 5(b): Iteration 1 Anova Statistics
+<br>
+
+The interaction terms are included between month and temperatures as well month and humidity, however, based on the above model output, the statistical significance (smaller the p-value, significant is the statistics) for the null hypothesis that the coefficient of the day of the week is zero, is not significant (p-value is not small, it is 0.09255 from Table 5(b)), therefore, the day of the week is dropped from the model. In this iteration, the interaction term of maximum temperature and minimum temperature is also dropped for this term doesn't have statistical significance.
+
+**Iteration 2**
+```{r Iteration 2}
+melb_weather_lm2 <- lm(log(evaporation_in_mm + 1) ~ month_name + maximum_temperature_in_degC + minimum_temperature_in_degC + relative_humidity_percentage + month_name:maximum_temperature_in_degC + month_name:minimum_temperature_in_degC + month_name:relative_humidity_percentage, data = melb_weather)
+
+summary(melb_weather_lm2)
+```
+Table 6(a): Iteration 2 Summary Statistics
+<br>
+```{r}
+anova(melb_weather_lm2)
+```
+Table 6(b): Iteration 2 Anova Statistics
+<br>
+
+From the summary statistics (Table 6(a)), the coefficient for maximum temperature is not statistically significant, therefore, it is dropped with this iteration. Along with this the interaction term of month and minimum temperature is also dropped based on the statistical significance numbers in Table 6(b).
+
+**Iteration 3**
+```{r Iteration 3}
+melb_weather_lm3 <- lm(log(evaporation_in_mm + 1) ~ month_name + minimum_temperature_in_degC + relative_humidity_percentage + month_name:maximum_temperature_in_degC + month_name:relative_humidity_percentage, data = melb_weather)
+
+summary(melb_weather_lm3)
+```
+Table 7(a): Iteration 3 Summary Statistics
+```{r}
+anova(melb_weather_lm3)
+```
+Table 7(b): Iteration 3 Anova Statistics
+<br>
+
+From the Summary Statistics (Table 7(a)), there is no quantitative variable is required to be dropped since, relative humidity and minimum temperature are both having statistical significance for their coefficients. However, in the Anova statistics (Table 7(b)), the interaction term month and relative humidity is not having statistical significance, therefore, it is needed to be dropped.
+<br>
+
+**Iteration 4**
+```{r Iteration 4}
+melb_weather_lm4 <- lm(log(evaporation_in_mm + 1) ~ month_name + minimum_temperature_in_degC + relative_humidity_percentage + month_name:maximum_temperature_in_degC, data = melb_weather)
+
+summary(melb_weather_lm4)
+```
+Table 8(a): Iteration 4 Summary Statistics
+```{r}
+anova(melb_weather_lm4)
+```
+Table 8(b): Iteration 4 Anova Statistics
+<br>
+
+There is no quantitative variable needs to be dropped based on Summary Statistics (Table 8(a)), however, the interaction term of month and maximum temperature needs to be dropped because the term is not statistically significant based on Anova summary (Table 8(b)).
+
+**Iteration 5 - Final Iteration**
+```{r Iteration 5}
+melb_weather_lm5 <- lm(log(evaporation_in_mm + 1) ~ month_name + minimum_temperature_in_degC + relative_humidity_percentage, data = melb_weather)
+
+summary(melb_weather_lm5)
+```
+Table 9(a): Iteration 5 Summary Statistics
+```{r}
+anova(melb_weather_lm5)
+```
+Table 9(b): Iteration 5 Anova Statistics
+<br>
+
+Based on Summary Statistics (Table 9(a)) and Anova Statistics (Table 9(b)), there is no variable left to drop, hence we are going to utilize this model for prediction. Though there was a relationship detected between the temperatures (Figure 6) and month but the model, the interaction terms of month and the temperatures didn't display statistical significance, therefore, it got dropped. 
+The reason might be when the model is trying to fit the values, the relationship between month and evaporation and relative humidity and evaporation as well as minimum temperature and evaporation are stronger in comparison this interaction term, therefore, didn't display the statistical significance. 
+
+The maximum temperature also got dropped, though there was a faint relationship (Figure 15) observed and that can be the most probable cause of having no statistical significance while coming up with the model.
+<br>
+
+### Model Diagnostics - Verification of the Assumptions
+
+The model is assessed against the following assumptions and verified.
+
+1. Linearity
+```{r fig.cap = "Figure 18(a) Plot to check on Linearity"}
+plot(melb_weather_lm5, which = 1)
+
+```
+The plot (Figure 18(a)) shows a straight line, it signifies the residuals are not biased, the model fitting has happened well. 
+
+2. Homoscedasticity
+```{r fig.cap = "Figure 18(b) Plot to check on Homoscedascity - Constant Variance"}
+plot(melb_weather_lm5, which = 3)
+
+```
+The plot (Figure 18(b)) shows a straight line with a little tilt while going towards right, meaning the variance is little less when moving towards higher fitted value. Still the model can be considered to meet this assumption.
+
+3. Normality
+```{r fig.cap = "Figure 18(c) Plot to check on Normality"}
+plot(melb_weather_lm5, which = 2)
+
+```
+The main focus has to be on the circles from -2 to +2 Theoritical Quantiles. As shown in the graph (Figure 18 (c)), the circles are along the straight line with a little deviation around -2. The model is considered to be meeting this assumption to a large extent.
+
+4. Independence
+```{r fig.cap = "Figure 18(d) Plot to check on Independence of Error terms"}
+plot(melb_weather_lm5$residual)
+```
+From the plot (Figure 18(d)), there is no pattern emerging, therefore, it can be concluded the model is meeting the assumption of error terms are independent.
+
+
+## Results
+
+The main purpose to build a model is to predict the evaporation (in mm) with certain confidence level. Moreover, to enable the interpretability of the model, the coefficients are explained in the following section. 
+
+### Interpretation of the model
+
+Coefficient of Month - In the model summary (Table 9(a)), the model has considered the month of December (12) as the reference month. There 11 coefficients corresponding to the remaining 11 months. The meaning of the coefficient for each month is the change in the expected value of, the log transformed evaporation plus 1, for that month as compared to the reference month. 
+
+For example, the coefficient corresponding to the month of January is -0.034084, it means the change in expected value in the log transformed evaporation plus 1 will be -0.034084, i.e., the value will decrease by this amount when it goes from December to January. Since the log transformed value is involved, the evaporation will increase by exp(-0.034084) - 1 = -0.03351 mm. In other words, it will decrease by this amount.
+
+Coefficient of Relative Humidity and Minimum Temperature - In the summary model (Table 9(a)), coefficient for the term relative humidity is -0.013866, it means the expected value of log transformed evaporation plus 1 will decrease by this amount when there is a change of 1% in the relative humidity. The change in evaporation will be exp(-0.013866) - 1 = -0.01377 mm
+Whereas the coefficient for the term minimum temperature is 0.044005, meaning the expected value of log transformed evaporation plus 1 will increase by this amount when there is a change of 1 degree celsius in minimum temperature. The change will be exp(0.044005) - 1 = 0.044988 mm.
+
+Intercept and Reference Category - In a model where a categorical variable present in the model, the coefficient for the intercept is the expected value of the log transformed evaporation + 1 when all the quantitative variables are 0 and the categorical variable is at the reference level. In the current model, when the reference month is December (12) and other quantitative variables are zero, the evaporation will be exp(2.123009) - 1 = 7.356244 mm.
+
+
+## Discussion
+
+The model is verified against the four assumptions of linear model and aware of the coefficients in the model to have the intelligibility of the model. In this section, the model is used to predict in some simulated environments, this is check how the model reacts to the changes in the values and whether the evaporation predicted are making sense with the given weather conditions (combination of temperatures, humidity) on that day in future.
+
+### Prediction
+
+There are four data points considered to use the model to predict the evaporation on that day with the given weather conditions, they are given as follows along with the prediction values and its upper and lower boundary values:
+
+1. Date = 29/02/2020, minimum_temperature_in_degC = 13.8, maximum_temperature_in_degC = 23.2, relative_humidity_percentage = 74%
+```{r Prediction for 1st Data Point}
+Date1 <- as.Date("2020-02-29", format = "%Y-%m-%d")
+new_data1 <- tibble(month_name = month(Date1, label = TRUE, abbr = FALSE), day_of_week = weekdays(Date1), maximum_temperature_in_degC = 23.2, minimum_temperature_in_degC = 13.8, relative_humidity_percentage = 74)
+
+prediction_1st_data <- exp(predict(melb_weather_lm5, new_data1, interval = "predict", level = 0.95)) - 1
+```
+
+2. Date = 25/12/2020, minimum_temperature_in_degC = 16.4, maximum_temperature_in_degC = 31.9, relative_humidity_percentage = 57%
+```{r Prediction for 2nd Data Point}
+Date2 <- as.Date("2020-12-25", format = "%Y-%m-%d")
+new_data2 <- tibble(month_name = month(Date2, label = TRUE, abbr = FALSE), day_of_week = weekdays(Date2), maximum_temperature_in_degC = 31.9, minimum_temperature_in_degC = 16.4, relative_humidity_percentage = 57)
+
+prediction_2nd_data <- exp(predict(melb_weather_lm5, new_data2, interval = "predict", level = 0.95)) - 1
+```
+
+3. Date = 13/01/2020, minimum_temperature_in_degC = 26.5, maximum_temperature_in_degC = 44.3, relative_humidity_percentage = 35%
+```{r Prediction for 3rd Data Point}
+Date3 <- as.Date("2020-01-13", format = "%Y-%m-%d")
+new_data3 <- tibble(month_name = month(Date3, label = TRUE, abbr = FALSE), day_of_week = weekdays(Date3), maximum_temperature_in_degC = 44.3, minimum_temperature_in_degC = 26.5, relative_humidity_percentage = 35)
+
+prediction_3rd_data <- exp(predict(melb_weather_lm5, new_data3, interval = "predict", level = 0.95)) - 1
+```
+
+4. Date = 06/07/2020, minimum_temperature_in_degC = 6.8, maximum_temperature_in_degC = 10.6, relative_humidity_percentage = 76%
+```{r Prediction for 4th Data Point}
+Date4 <- as.Date("2020-07-06", format = "%Y-%m-%d")
+new_data4 <- tibble(month_name = month(Date4, label = TRUE, abbr = FALSE), day_of_week = weekdays(Date4), maximum_temperature_in_degC = 10.6, minimum_temperature_in_degC = 6.8, relative_humidity_percentage = 76)
+
+prediction_4th_data <- exp(predict(melb_weather_lm5, new_data4, interval = "predict", level = 0.95)) - 1
+
+predictions <- rbind(prediction_1st_data,prediction_2nd_data,prediction_3rd_data,prediction_4th_data)
+
+data_points <- tibble("Data Point" = c("1st Data Point","2nd Data Point", "3rd Data Point", "4th Data Point"))
+date_tibble <- tibble("Date" = c(Date1, Date2, Date3, Date4))
+max_temp_tibble <- tibble("Maximum Temperature in degC"=c(23.2,31.9,44.3,10.6))
+min_temp_tibble <- tibble("Minimum Temperature in degC"=c(13.8,16.4,26.5,6.8))
+rel_hum_tibble <- tibble("Relative Humidity"=c(74,57,35,76))
+
+predictions <- cbind(data_points, date_tibble, max_temp_tibble,min_temp_tibble,rel_hum_tibble, predictions)
+
+predictions <- rename("Predicted Evaporation in mm" = fit, predictions)
+predictions <- rename("Lower Boundary Value" = lwr, predictions)
+predictions <- rename("Upper Boundary Value" = upr, predictions)
+
+kable(predictions, caption="Table 10: Prediction of Evaporation in mm")
+```
+
+**Interpretation and Comparison of the Prediction**
+
+The data points provided to predict with certain weather conditions (maximum and minimum temperatures along with relative humidity) and particular day (date), therefore, the prediction interval is wider in this case. In case only the weather conditions are given, then, it would consider all those days with these weather conditions then the prediction interval will be narrower. 
+
+The predictions are aligned with the bi-variate analysis done for the evaporation and temperatures. The temperatures are positively correlated with the evaporation as displayed in Figure 15 and 16. As the temperatures are increased the amount of evaporation is increased. The evaporation is having a faint negative correlation with the relative humidity that is manifested in the predicted value for evaporation, as the relative humidity increases the evaporation decreases.
+
+The mathematical formula for calculating the interval is complex when there is a categorical variable along with more than quantitative variables are involved. 
+
+**The 10mm Quesion**
+
+Based on the prediction (Table 10), 13th of January 2020 is the day when the evaporation would happen **more than** 10mm with 95% confidence level. Moreover, the days when this **would not** happen are 29th of February 2020, 25th of December 2020 and 06th of July 2020.
+
+## Conclusion
+
+The current model not only considers the temporal element for coming up with the estimation of evaporation but it is also taking into account the weather conditions, namely, minimum temperature and relative humidity in predicting the evaporation. The predictions would be more sensitive to the weather conditions as well as month, therefore, this would be an improvement in the estimation of the evaporation. Consequently, the estimation would enable MWC to kick-off initiatives to save water.
+
+## References
+[1] Norwegian SciTech News 2017, 'Water Reservoirs Save Lives and Create Value', Norwegian SciTech News, <https://norwegianscitechnews.com/2017/03/water-reservoirs-save-lives-create-value/>
+
+[2] Zhao G., Li Y., Zhou L. & Gao H., 2022, 'Evaporative Water Loss of 1.42 million Global Lakes', *nature communication*, Published on 28 June 2022, 3686, DOI: https://doi.org/10.1038/s41467-022-31125-6 
